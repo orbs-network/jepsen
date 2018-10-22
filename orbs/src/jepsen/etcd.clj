@@ -19,6 +19,7 @@
             [jepsen.control.util :as cu]
             [jepsen.os.debian :as debian]))
 
+(use '[clojure.java.shell :only [sh]])
 (def dir     "/opt/orbs")
 (def binary  "/opt/orbs/orbs-node")
 (def logfile "/opt/orbs/logs/node.log")
@@ -47,6 +48,29 @@
        (map (fn [node]
               (str (name node) "=" (peer-url node))))
        (str/join ",")))
+
+(def orbs-contract-sdk-basepath "/opt/go/src/github.com/orbs-network/orbs-contract-sdk")
+(def counter-contract-basedir (str orbs-contract-sdk-basepath "/go/examples/counter"))
+(def gammacli-binary-path (str orbs-contract-sdk-basepath "/gamma-cli"))
+(defn gamma-cli-run-call
+  "Performs a call op against gamma-cli executable"
+  [jsonpath]
+  (println (sh gammacli-binary-path "run" "call" jsonpath)))
+
+(defn gamma-cli-deploy
+  "Performs a deploy op against gamma-cli executable"
+  [name jsonpath]
+  (println (sh gammacli-binary-path "deploy" name jsonpath "-host" "http://n3:8080" :dir orbs-contract-sdk-basepath)))
+
+(defn gamma-cli-read-counter
+  "Gets the counter value through the deployed 'Counter' smart contract"
+  []
+  (gamma-cli-run-call (str counter-contract-basedir "/jsons/get.json")))
+
+(defn gamma-cli-deploy-contract
+  "Deploys the contract onto the network using gamma-cli"
+  [name jsonpath]
+  (gamma-cli-deploy name jsonpath))
 
 (def nodes-keys {"n1" {:public "dfc06c5be24a67adee80b35ab4f147bb1a35c55ff85eda69f40ef827bddec173", :private "93e919986a22477fda016789cca30cb841a135650938714f85f0000a65076bd4dfc06c5be24a67adee80b35ab4f147bb1a35c55ff85eda69f40ef827bddec173"}
                  "n2" {:public "92d469d7c004cc0b24a192d9457836bf38effa27536627ef60718b00b0f33152", :private "3b24b5f9e6b1371c3b5de2e402a96930eeafe52111bb4a1b003e5ecad3fab53892d469d7c004cc0b24a192d9457836bf38effa27536627ef60718b00b0f33152"}
@@ -110,8 +134,7 @@
   [conn]
   (reify client/Client
     (open! [_ test node]
-      (client (v/connect (client-url node)
-                         {:timeout 5000})))
+      (println "opening connection" node))
 
     (invoke! [this test op]
       (let [[k v] (:value op)
@@ -166,32 +189,20 @@
   :concurrency, ...), constructs a test map."
   [opts]
   (info :opts opts)
+  (info "just before starting the test (message from itamar)")
+  (info (gamma-cli-deploy-contract "Counter" (str counter-contract-basedir "/counter.go")))
+  (info "sleeping after deployment of contract")
+  (Thread/sleep 100000)
   (merge tests/noop-test
          {:name "orbs"
           :os debian/os
           :db (db "alpha")
-          :client (client nil)}
-          ; :nemesis (nemesis/partition-random-halves)
-          ; :model  (model/cas-register)
-          ; :checker (checker/compose
-          ;           {:perf     (checker/perf)
-          ;            :indep (independent/checker
-          ;                    (checker/compose
-          ;                     {:timeline (timeline/html)
-          ;                      :linear   (checker/linearizable)}))})
-          ; :generator (->> (independent/concurrent-generator
-          ;                  10
-          ;                  (range)
-          ;                  (fn [k]
-          ;                    (->> (gen/mix [r w cas])
-          ;                         (gen/stagger 1/30)
-          ;                         (gen/limit 300))))
-          ;                 (gen/nemesis
-          ;                  (gen/seq (cycle [(gen/sleep 5)
-          ;                                   {:type :info, :f :start}
-          ;                                   (gen/sleep 5)
-          ;                                   {:type :info, :f :stop}])))
-          ;                 (gen/time-limit (:time-limit opts)))}
+          :client (client nil)
+          :generator (->> r
+                          (gen/stagger 1)
+                          (gen/nemesis nil)
+                          (gen/time-limit 15))}
+
          opts))
 
 (defn -main
