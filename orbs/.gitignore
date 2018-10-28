@@ -5,6 +5,7 @@ pom.xml
 pom.xml.asc
 store/
 *.jar
+logs/*.log
 *.class
 /.lein-*
 /.nrepl-port

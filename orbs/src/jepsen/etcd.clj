@@ -70,6 +70,9 @@
   [name jsonpath]
   (sh gammacli-binary-path "deploy" name jsonpath "-host" "http://n3:9090" :dir orbs-contract-sdk-basepath))
 
+(defn gamma-cli-write-singular-value
+  "Writes a value into our singular cell")
+
 (defn gamma-cli-read-singular
   "Gets the counter value through the deployed 'Counter' smart contract"
   [node]
@@ -128,8 +131,7 @@
        (c/exec* "export GOPATH=/go;" "/opt/orbs/orbs-node" "-listen" ":9090" "--silent" "--config" (str "/var/opt/" node ".json")
                 "--log" "/opt/orbs/logs/node.log" "&>/dev/null" "&")
        (info "Sleeping for a second to let the blockchain finish initial handshakes")
-       (Thread/sleep 1000)
-       ))
+       (Thread/sleep 1000)))
 
     (teardown! [_ test node]
       (info node "Stopping Orbs binary..")
