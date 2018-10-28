@@ -5,5 +5,6 @@
   :main jepsen.etcd
   :jvm-opts ["-Dcom.sun.management.jmxremote"]
   :dependencies [[org.clojure/clojure "1.8.0"]
+                 [org.clojure/data.json "0.2.6"]
                  [jepsen "0.1.9-SNAPSHOT"]
                  [verschlimmbesserung "0.1.3"]])

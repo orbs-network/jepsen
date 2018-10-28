@@ -2,12 +2,12 @@
 #FROM tutum/debian:jessie
 FROM tutum/debian:jessie
 
-ENV GOPATH "/opt/go"
-WORKDIR /opt/go
-COPY setup-orbs.sh /opt/go/setup-orbs.sh
+ENV GOPATH "/go"
+WORKDIR /go
+COPY setup-orbs.sh /go/setup-orbs.sh
 COPY stop-orbs.sh /opt/orbs/stop-orbs.sh
 
-RUN apt-get update && apt-get install -y wget build-essential git && \
+RUN apt-get update && apt-get install -y wget build-essential git musl-dev gcc && \
     wget https://dl.google.com/go/go1.10.3.linux-amd64.tar.gz && \
     tar -xvf go1.10.3.linux-amd64.tar.gz && \
     mv go /usr/local && \

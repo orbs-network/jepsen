@@ -1,6 +1,7 @@
 (ns jepsen.etcd
   (:gen-class)
   (:require [clojure.tools.logging :refer :all]
+            [clojure.data.json :as json]
             [clojure.string :as str]
             [verschlimmbesserung.core :as v]
             [slingshot.slingshot :refer [try+]]
@@ -50,27 +51,38 @@
        (str/join ",")))
 
 (def orbs-contract-sdk-basepath "/opt/go/src/github.com/orbs-network/orbs-contract-sdk")
-(def counter-contract-basedir (str orbs-contract-sdk-basepath "/go/examples/counter"))
+(def singular-contract-basedir (str orbs-contract-sdk-basepath "/go/examples/singular"))
 (def gammacli-binary-path (str orbs-contract-sdk-basepath "/gamma-cli"))
 (defn gamma-cli-run-call
   "Performs a call op against gamma-cli executable"
-  [jsonpath]
-  (println (sh gammacli-binary-path "run" "call" jsonpath)))
+  [jsonpath node]
+  (let [result (sh gammacli-binary-path "run" "call" jsonpath "-host" (str "http://" node ":9090"))]
+    (let [out (get (json/read-str (get result :out)) "OutputArguments")]
+      (get (get out 0) "Value"))))
+
+(defn cli-call-successful?
+  "Checks the map returned from the sh command for success"
+  [exitcode jsonstring]
+  (if (= exitcode 0) true false))
 
 (defn gamma-cli-deploy
   "Performs a deploy op against gamma-cli executable"
   [name jsonpath]
-  (println (sh gammacli-binary-path "deploy" name jsonpath "-host" "http://n3:8080" :dir orbs-contract-sdk-basepath)))
+  (sh gammacli-binary-path "deploy" name jsonpath "-host" "http://n3:9090" :dir orbs-contract-sdk-basepath))
 
-(defn gamma-cli-read-counter
+(defn gamma-cli-read-singular
   "Gets the counter value through the deployed 'Counter' smart contract"
-  []
-  (gamma-cli-run-call (str counter-contract-basedir "/jsons/get.json")))
+  [node]
+  (gamma-cli-run-call (str singular-contract-basedir "/jsons/get.json") node))
 
 (defn gamma-cli-deploy-contract
   "Deploys the contract onto the network using gamma-cli"
   [name jsonpath]
-  (gamma-cli-deploy name jsonpath))
+  (let [result (gamma-cli-deploy name jsonpath)]
+    (info "the returned map from deployment sh command" result)
+    (if (cli-call-successful? (get result :exit) (get result :out))
+      (info "Contract deployent is successful!")
+      (throw (Exception. "Contract deployment was not successful!" result)))))
 
 (def nodes-keys {"n1" {:public "dfc06c5be24a67adee80b35ab4f147bb1a35c55ff85eda69f40ef827bddec173", :private "93e919986a22477fda016789cca30cb841a135650938714f85f0000a65076bd4dfc06c5be24a67adee80b35ab4f147bb1a35c55ff85eda69f40ef827bddec173"}
                  "n2" {:public "92d469d7c004cc0b24a192d9457836bf38effa27536627ef60718b00b0f33152", :private "3b24b5f9e6b1371c3b5de2e402a96930eeafe52111bb4a1b003e5ecad3fab53892d469d7c004cc0b24a192d9457836bf38effa27536627ef60718b00b0f33152"}
@@ -98,6 +110,8 @@
        (get (get nodes-keys node) :public)
        "\",\"node-private-key\":\""
        (get (get nodes-keys node) :private)
+       "\",\"constant-consensus-leader\":\""
+       (get (get nodes-keys "n2") :public)
        "\", \"federation-nodes\":["
        (federation-member-list test) "]}"))
 
@@ -111,14 +125,20 @@
        (spit (str node ".json") (orbs-member-config-json test node))
        (c/upload (str node ".json") (str "/var/opt/" node ".json"))
        (c/exec "mkdir" "-p" "/opt/orbs/logs")
-       (c/exec* "/opt/orbs/orbs-node" "--silent" "--config" (str "/var/opt/" node ".json")
+       (c/exec* "export GOPATH=/go;" "/opt/orbs/orbs-node" "-listen" ":9090" "--silent" "--config" (str "/var/opt/" node ".json")
                 "--log" "/opt/orbs/logs/node.log" "&>/dev/null" "&")
-       (println "Sleeping after starting demon..")
-       (Thread/sleep 5000)))
+       (info "Sleeping for a second to let the blockchain finish initial handshakes")
+       (Thread/sleep 1000)
+       ))
 
     (teardown! [_ test node]
       (info node "Stopping Orbs binary..")
-      (c/exec "./opt/orbs/stop-orbs.sh"))))
+      (c/exec "./opt/orbs/stop-orbs.sh"))
+
+    db/Primary
+    (setup-primary! [_ test node]
+      (info node "Performing a one time setup (Singular contract deployment)")
+      (gamma-cli-deploy-contract "Singular" (str singular-contract-basedir "/singular.go")))))
 
     ; db/LogFiles
     ; (log-files [_ test node]
@@ -130,48 +150,15 @@
   (when s (Long/parseLong s)))
 
 (defn client
-  "A client for a single compare-and-set smart contract"
+  "A client for a single compare-and-set register"
   [conn]
   (reify client/Client
     (open! [_ test node]
-      (println "opening connection" node))
+      (client node))
 
     (invoke! [this test op]
-      (let [[k v] (:value op)
-            crash (if (= :read (:f op)) :fail :info)]
-        (try+
-         (case (:f op)
-           :read (let [value (-> conn
-                                 (v/get k {:quorum? false})
-                                 parse-long)]
-                   (assoc op :type :ok, :value (independent/tuple k value)))
-
-           :write (do (v/reset! conn k v)
-                      (assoc op :type, :ok))
-
-           :cas (let [[value value'] v]
-                  (assoc op :type (if (v/cas! conn k value value'
-                                              {:prev-exist? true})
-                                    :ok
-                                    :fail))))
-
-         (catch java.net.SocketTimeoutException e
-           (assoc op :type crash, :error :timeout))
-
-         (catch [:errorCode 100] e
-           (assoc op :type :fail, :error :not-found))
-
-         (catch [:body "command failed to be committed due to node failure\n"] e
-           (assoc op :type crash :error :node-failure))
-
-         (catch [:status 307] e
-           (assoc op :type crash :error :redirect-loop))
-
-         (catch (and (instance? clojure.lang.ExceptionInfo %)) e
-           (assoc op :type crash :error e))
-
-         (catch (and (:errorCode %) (:message %)) e
-           (assoc op :type crash :error e)))))
+      (case (:f op)
+        :read (assoc op :type :ok, :value (gamma-cli-read-singular conn))))
 
     ; If our connection were stateful, we'd close it here.
     ; Verschlimmbesserung doesn't hold a connection open, so we don't need to.
@@ -180,19 +167,15 @@
     (setup! [_ _])
     (teardown! [_ _])))
 
+
 (defn r   [_ _] {:type :invoke, :f :read, :value nil})
 (defn w   [_ _] {:type :invoke, :f :write, :value (rand-int 5)})
 (defn cas [_ _] {:type :invoke, :f :cas, :value [(rand-int 5) (rand-int 5)]})
 
-(defn etcd-test
+(defn orbs-singular-test
   "Given an options map from the command-line runner (e.g. :nodes, :ssh,
   :concurrency, ...), constructs a test map."
   [opts]
-  (info :opts opts)
-  (info "just before starting the test (message from itamar)")
-  (info (gamma-cli-deploy-contract "Counter" (str counter-contract-basedir "/counter.go")))
-  (info "sleeping after deployment of contract")
-  (Thread/sleep 100000)
   (merge tests/noop-test
          {:name "orbs"
           :os debian/os
@@ -201,14 +184,12 @@
           :generator (->> r
                           (gen/stagger 1)
                           (gen/nemesis nil)
-                          (gen/time-limit 15))}
-
-         opts))
+                          (gen/time-limit 15))}))
 
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for
   browsing results."
   [& args]
-  (cli/run! (merge (cli/single-test-cmd {:test-fn etcd-test})
+  (cli/run! (merge (cli/single-test-cmd {:test-fn orbs-singular-test})
                    (cli/serve-cmd))
             args))
