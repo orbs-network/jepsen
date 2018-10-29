@@ -2,4 +2,4 @@
 set -e # exit on an error
 
 cd docker
-sh up.sh
+sh up.sh --daemon
