@@ -1,0 +1,10 @@
+version: 2
+jobs:
+  build:
+    machine: true
+    steps:
+      - checkout
+      - run: ./ops/setup-jepsen.sh
+      - run: ./ops/test.sh
+      - store_artifacts:
+          path: logs
