@@ -70,8 +70,8 @@
   [name jsonpath]
   (sh gammacli-binary-path "deploy" name jsonpath "-host" "http://n3:9090" :dir orbs-contract-sdk-basepath))
 
-(defn gamma-cli-write-singular-value
-  "Writes a value into our singular cell")
+; (defn gamma-cli-write-singular-value
+;   "Writes a value into our singular cell")
 
 (defn gamma-cli-read-singular
   "Gets the counter value through the deployed 'Counter' smart contract"
