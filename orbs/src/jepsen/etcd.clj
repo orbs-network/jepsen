@@ -70,8 +70,15 @@
   [name jsonpath]
   (sh gammacli-binary-path "deploy" name jsonpath "-host" "http://n3:9090" :dir orbs-contract-sdk-basepath))
 
+(def set-json-template "{ \"ContractName\": \"Singular\", \"MethodName\": \"set\", \"Arguments\": [ { \"Name\": \"amount\", \"Type\": \"string\", \"Value\": \"some_value\" } ] }")
+(defn generate-set-json
+  "Generates the JSON string with the newly set value")
+
 ; (defn gamma-cli-write-singular-value
-;   "Writes a value into our singular cell")
+;   "Writes a value into our singular cell"
+;   [value]
+  
+;   )
 
 (defn gamma-cli-read-singular
   "Gets the counter value through the deployed 'Counter' smart contract"
