@@ -3,6 +3,7 @@
   (:require [clojure.tools.logging :refer :all]
             [clojure.data.json :as json]
             [clojure.string :as str]
+            [clojure.java.io :as io]
             [verschlimmbesserung.core :as v]
             [slingshot.slingshot :refer [try+]]
             [knossos.model :as model]
@@ -65,20 +66,52 @@
   [exitcode jsonstring]
   (if (= exitcode 0) true false))
 
+(defn cli-send-successful?
+  "Checks the map returned from the gamma-cli send command for success"
+  [exitcode jsonstring]
+  (if (= exitcode 0) true false)
+  (if (str/includes? jsonstring "ExecutionResult\":1") true false))
+
 (defn gamma-cli-deploy
   "Performs a deploy op against gamma-cli executable"
   [name jsonpath]
   (sh gammacli-binary-path "deploy" name jsonpath "-host" "http://n3:9090" :dir orbs-contract-sdk-basepath))
 
-(def set-json-template "{ \"ContractName\": \"Singular\", \"MethodName\": \"set\", \"Arguments\": [ { \"Name\": \"amount\", \"Type\": \"string\", \"Value\": \"some_value\" } ] }")
-(defn generate-set-json
-  "Generates the JSON string with the newly set value")
+(def set-json-template "{ \"ContractName\": \"Singular\", \"MethodName\": \"set\", \"Arguments\": [ { \"Name\": \"Value\", \"Type\": \"string\", \"Value\": \"xxx\" } ] }")
+(def cas-json-template "{ \"ContractName\": \"Singular\", \"MethodName\": \"cas\", \"Arguments\": [ { \"Name\": \"oldValue\", \"Type\": \"string\", \"Value\": \"xxx\" }, { \"Name\": \"newValue\", \"Type\": \"string\", \"Value\": \"yyy\" } ] }")
 
-; (defn gamma-cli-write-singular-value
-;   "Writes a value into our singular cell"
-;   [value]
-  
-;   )
+(defn generate-set-json
+  "Generates the JSON string with the newly set value"
+  [value]
+  (clojure.string/replace set-json-template #"xxx" (str value)))
+
+(defn generate-cas-json
+  "Generates the JSON string with the newly cas values"
+  [old new]
+  (let [oldresult (clojure.string/replace cas-json-template #"xxx" (str old))]
+    (clojure.string/replace cas-json-template #"yyy" (str new))))
+
+(defn gamma-cli-singular-cas
+  "Executes the compare and set operation of the Singular smart contract"
+  [old new node proc]
+  (let [jsonstring (generate-cas-json old new)
+        ident (quot (System/currentTimeMillis) 1000)
+        nodejsonfilename (str "cas" ident "_" proc ".json")
+        nodejsonfile (str orbs-contract-sdk-basepath "/" nodejsonfilename)]
+    (spit nodejsonfile jsonstring)
+    (let [result (sh gammacli-binary-path "run" "send" nodejsonfilename "-host" (str "http://" node ":9090") :dir orbs-contract-sdk-basepath)]
+      (cli-send-successful? (get result :exit) (get result :out)))))
+
+(defn gamma-cli-write-singular-value
+  "Writes a value into our singular cell"
+  [value node proc]
+  (let [jsonstring (generate-set-json value)
+        ident (quot (System/currentTimeMillis) 1000)
+        nodejsonfilename (str "set" ident "_" proc ".json")
+        nodejsonfile (str orbs-contract-sdk-basepath "/" nodejsonfilename)]
+    (spit nodejsonfile jsonstring)
+    (let [result (sh gammacli-binary-path "run" "send" nodejsonfilename "-host" (str "http://" node ":9090") :dir orbs-contract-sdk-basepath)]
+      (cli-send-successful? (get result :exit) (get result :out)))))
 
 (defn gamma-cli-read-singular
   "Gets the counter value through the deployed 'Counter' smart contract"
@@ -167,10 +200,19 @@
 
     (invoke! [this test op]
       (case (:f op)
-        :read (assoc op :type :ok, :value (gamma-cli-read-singular conn))))
+        :read (assoc op :type :ok, :value (gamma-cli-read-singular conn))
+        :write (do (gamma-cli-write-singular-value (:value op) conn (get op :process))
+                   (assoc op :type, :ok))
+
+        :cas (try+
+              (let [[old new] (:value op)]
+                (assoc op :type (if (gamma-cli-singular-cas old new conn (get op :process))
+                                  :ok
+                                  :fail)))
+              (catch [:errorCode 100] ex
+                (assoc op :type :fail, :error :not-found)))))
 
     ; If our connection were stateful, we'd close it here.
-    ; Verschlimmbesserung doesn't hold a connection open, so we don't need to.
     (close! [_ _])
 
     (setup! [_ _])
@@ -190,7 +232,9 @@
           :os debian/os
           :db (db "alpha")
           :client (client nil)
-          :generator (->> r
+          :model      (model/cas-register)
+          :checker    (checker/linearizable)
+          :generator (->> (gen/mix [r w cas])
                           (gen/stagger 1)
                           (gen/nemesis nil)
                           (gen/time-limit 15))}))
