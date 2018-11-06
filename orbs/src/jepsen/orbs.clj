@@ -1,4 +1,4 @@
-(ns jepsen.etcd
+(ns jepsen.orbs
   (:gen-class)
   (:require [clojure.tools.logging :refer :all]
             [clojure.data.json :as json]
