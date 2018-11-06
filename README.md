@@ -2,10 +2,9 @@
 
 [![CircleCI](https://circleci.com/gh/orbs-network/jepsen/tree/master.svg?style=svg)](https://circleci.com/gh/orbs-network/jepsen/tree/master)
 
-Orbs is an Hybrid Blockchain Solution and by nature it is decentralized and eventually consistent. The aim of this repository is to test Orbs and make sure it can withstand network partitions and unavailability of peer nodes in it's blockchain network and still be able to
-have consistent results from it's commited ledger.
+Orbs is an Hybrid Blockchain Solution and by nature is decentralized and eventually consistent. The aim of this repository is to test the Go language reference implementation of the Orbs protocol, and make sure it can withstand network partitions and unavailability of peer nodes in is blockchain network and still be able to have consistent results from it's commited ledger.
 
-After all , a blockchain is a database and one which is distributed. So one can only expect it to have a consistent result from all nodes in the network even with network failures.
+After all, a blockchain is a distributed database, so one can expect it to have a consistent result from all nodes in the network even with network failures.
 
 This project uses the Jepsen framework developed by [Kyle Kingsbury](https://github.com/aphyr). You can have a look at the official GitHub repository of the project [here](https://github.com/jepsen-io/jepsen) 
 
