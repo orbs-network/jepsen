@@ -42,6 +42,9 @@
   [node]
   (node-url node 2379))
 
+(defn parse-int [s]
+  (if (= s "nil") nil (Integer. (re-find  #"\d+" s))))
+
 (defn initial-cluster
   "Constructs an initial cluster string for a test, like
   \"foo=foo:2380,bar=bar:2380,...\""
@@ -59,7 +62,7 @@
   [jsonpath node]
   (let [result (sh gammacli-binary-path "run" "call" jsonpath "-host" (str "http://" node ":9090"))]
     (let [out (get (json/read-str (get result :out)) "OutputArguments")]
-      (get (get out 0) "Value"))))
+      (parse-int (get (get out 0) "Value")))))
 
 (defn cli-call-successful?
   "Checks the map returned from the sh command for success"
@@ -232,12 +235,28 @@
           :os debian/os
           :db (db "alpha")
           :client (client nil)
+          :nemesis (nemesis/partition-random-halves)
           :model      (model/cas-register)
-          :checker    (checker/linearizable)
-          :generator (->> (gen/mix [r w cas])
-                          (gen/stagger 1)
-                          (gen/nemesis nil)
-                          (gen/time-limit 15))}))
+          :checker (checker/compose
+                    {:perf     (checker/perf)
+                     :indep (independent/checker
+                             (checker/compose
+                              {:timeline (timeline/html)
+                               :linear   (checker/linearizable)}))})
+          :generator (->> (independent/concurrent-generator
+                           10
+                           (range)
+                           (fn [k]
+                             (->> (gen/mix [r w cas])
+                                  (gen/stagger 1/30)
+                                  (gen/limit 300))))
+                          (gen/nemesis
+                           (gen/seq (cycle [(gen/sleep 5)
+                                            {:type :info, :f :start}
+                                            (gen/sleep 5)
+                                            {:type :info, :f :stop}])))
+                          (gen/time-limit (:time-limit opts)))}
+         opts))
 
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for
