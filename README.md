@@ -1,4 +1,6 @@
-# jepsen.orbs
+# Orbs Jepsen
+
+[![CircleCI](https://circleci.com/gh/orbs-network/jepsen/tree/master.svg?style=svg)](https://circleci.com/gh/orbs-network/jepsen/tree/master)
 
 Orbs is an Hybrid Blockchain Solution and by nature it is decentralized and eventually consistent. The aim of this repository is to test Orbs and make sure it can withstand network partitions and unavailability of peer nodes in it's blockchain network and still be able to
 have consistent results from it's commited ledger.
