@@ -58,7 +58,4 @@ At this moment this project is maintained and developed by the core team at [Orb
 write to [Itamar Arjuan](https://github.com/itamararjuan) who understands most of the code here since he wrote it.
 
 ## License
-
-Copyright © 2018 Orbs
-
-Distributed under the Eclipse Public License version 1.0 
+MIT.
